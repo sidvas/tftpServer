@@ -1,6 +1,7 @@
 Simple TFTP server implementation
 _________________________________
 
+
 -To build&install, make sure you have a directory with 'tftpServer.go' inside it. Call 'go build directory/tftpServer' followed by 'go install directory/tftpServer'. This will create an executable 'tftpServer.exe' in your bin folder according to your GOPATH. Run the executable to launch the server
 
 -You can test using 'tftp.exe' provided in the repository which is a tftp client. Usage is as follows
