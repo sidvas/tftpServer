@@ -113,7 +113,7 @@ func handleRRQ(conn *net.UDPConn, filename string, currOp uint16, addr *net.UDPA
 		buf := make([]byte, 1024)
 
 		n, addr, err := conn.ReadFromUDP(buf) //Get next msg from client
-		fmt.Println("Received from UDP Client : ", string(buf[:n]))
+		fmt.Println("Received from UDP Client : ", buf[:n])
 		currOp := binary.BigEndian.Uint16(buf[0:2])
 		fmt.Println("CurOp is ", currOp)
 		if err != nil {
@@ -150,6 +150,7 @@ func handleRRQ(conn *net.UDPConn, filename string, currOp uint16, addr *net.UDPA
 		if currOp==uint16(4) { //If Ack received
 			bn := binary.BigEndian.Uint16(buf[2:4]) //Extract which block number Ack is received for
 			if blockn==bn { //Correct execution - move on to next block
+				fmt.Println("ACK RECEIVED FOR BLOCK # ", blockn)
 				vals := make([]byte, 512)
 				blockn = blockn+uint16(1)
 				dat := DATA{uint16(3), blockn, vals}
@@ -157,10 +158,15 @@ func handleRRQ(conn *net.UDPConn, filename string, currOp uint16, addr *net.UDPA
 				if err != nil {
 					checkerread(err)
 				}
-				f.Seek(int64(512*(blockn-1)), 0) //Seek offset into file depending on block number
+				x, eff := f.Seek((512*int64(bn)), 0) //Seek offset into file depending on block number
+				fmt.Println("SEEKING AT", x)
+				if eff !=nil {
+					log.Println(eff)
+				}
 				n, err := f.Read(vals)
 				f.Close()
 				fmt.Println("read ", n, " bytes.....")
+				fmt.Println("from ", filename)
 				dat.datacont = vals[:n]
 				msg := make([]byte, (2+2+n))
 				binary.BigEndian.PutUint16(msg, dat.opcode)
@@ -169,6 +175,7 @@ func handleRRQ(conn *net.UDPConn, filename string, currOp uint16, addr *net.UDPA
 				msg[x+4] = vals[x]
 				}
 				fmt.Println("Sending to client : ", msg[:]) //Send to client
+				fmt.Println("SENT BLOCK # ", dat.blocknum)
 				_, err = conn.WriteToUDP(msg, addr)
 				if err != nil {
 				log.Println(err)
@@ -176,8 +183,9 @@ func handleRRQ(conn *net.UDPConn, filename string, currOp uint16, addr *net.UDPA
 				if n<512 { //If number of bytes read are less than 512, means that EOF has been reached. Cease transmission
 					endf = true
 				}
-			} else if blockn==(bn-1) { //If stuck on previous ACK, redeliver old block to client
+			} /*else if blockn==(bn-1) { //If stuck on previous ACK, redeliver old block to client
 				vals := make([]byte, 512)
+				fmt.Println("REDELIVERING OLD BLOCK")
 				dat := DATA{uint16(3), blockn, vals}
 				f, err := os.Open(filename)
 				if err != nil {
@@ -200,7 +208,7 @@ func handleRRQ(conn *net.UDPConn, filename string, currOp uint16, addr *net.UDPA
 				if err != nil {
 				log.Println(err)
 				}
-			}
+			}*/
 		}
 		if endf==true {
 			break
