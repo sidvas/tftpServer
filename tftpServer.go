@@ -1,13 +1,13 @@
 package main
 /*Siddhant Vashistha---
 **Simple tftp server implementation*/
-
 import (
 	"fmt"
 	"net"
 	"log"
 	"encoding/binary"
 	"os"
+	"errors"
 )
 
 //Custom structures to hold packets of data for the TFTP protocol
@@ -100,11 +100,27 @@ func handleUDPConnection(conn *net.UDPConn) { //Active server: handles WRQ and R
 	}
 }
 
-func checkerread(e error) {
+func checkerread(e error, conn *net.UDPConn, addr *net.UDPAddr) (bool) {
 
 
 	fmt.Println("Error is : ", e)
-	fmt.Println("Server will timeout")
+	fmt.Println("Server will timeout, sending error msg")
+	msg := make([]byte, (2+2+len(e.Error())+1))
+	err := ERROR{uint16(5), uint16(0), e.Error()}
+	binary.BigEndian.PutUint16(msg, err.opcode)
+	binary.BigEndian.PutUint16(msg[2:], err.errorCode) //Send to client
+	errstring := e.Error()
+	var x int
+	for x:=0; x<len(errstring); x++ {
+		msg[x+4] = errstring[x]
+	}
+	msg[x] = uint8(0)
+	fmt.Println("Sending to client : ", msg[:])
+	_, ex := conn.WriteToUDP(msg, addr)
+	if ex != nil {
+		log.Println(ex)
+	}
+	return true
 }
 
 func handleRRQ(conn *net.UDPConn, filename string, currOp uint16, addr *net.UDPAddr) (bool) { //Handles RRQs and ACKs from client
@@ -126,9 +142,12 @@ func handleRRQ(conn *net.UDPConn, filename string, currOp uint16, addr *net.UDPA
 			dat := DATA{uint16(3), blockn, vals}
 			f, err := os.Open(filename)
 			if err != nil {
-				checkerread(err)
+				endf = checkerread(err, conn, addr)
 			}
 			n, err := f.Read(vals) //reading from file
+			if err != nil {
+				endf = checkerread(err, conn, addr)
+			}
 			f.Close()
 			fmt.Println("read ", n, " bytes.....")
 			dat.datacont = vals[:n]
@@ -157,7 +176,7 @@ func handleRRQ(conn *net.UDPConn, filename string, currOp uint16, addr *net.UDPA
 				dat := DATA{uint16(3), blockn, vals}
 				f, err := os.Open(filename)
 				if err != nil {
-					checkerread(err)
+					endf = checkerread(err, conn, addr)
 				}
 				x, eff := f.Seek((512*int64(bn)), 0) //Seek offset into file depending on block number
 				fmt.Println("SEEKING AT", x)
@@ -165,6 +184,9 @@ func handleRRQ(conn *net.UDPConn, filename string, currOp uint16, addr *net.UDPA
 					log.Println(eff)
 				}
 				n, err := f.Read(vals)
+				if err != nil {
+					endf = checkerread(err, conn, addr)
+				}
 				f.Close()
 				fmt.Println("read ", n, " bytes.....")
 				fmt.Println("from ", filename)
@@ -184,32 +206,9 @@ func handleRRQ(conn *net.UDPConn, filename string, currOp uint16, addr *net.UDPA
 				if n<512 { //If number of bytes read are less than 512, means that EOF has been reached. Cease transmission
 					endf = true
 				}
-			} /*else if blockn==(bn-1) { //If stuck on previous ACK, redeliver old block to client
-				vals := make([]byte, 512)
-				fmt.Println("REDELIVERING OLD BLOCK")
-				dat := DATA{uint16(3), blockn, vals}
-				f, err := os.Open(filename)
-				if err != nil {
-					checkerread(err)
-				}
-				f.Seek(int64(512*(blockn-1)), 0)
-				
-				n, err := f.Read(vals)
-				f.Close()
-				dat.datacont = vals[:n]
-				fmt.Println("read ", n, " bytes.....")
-				msg := make([]byte, (2+2+n))
-				binary.BigEndian.PutUint16(msg, dat.opcode)
-				binary.BigEndian.PutUint16(msg[2:], dat.blocknum)
-				for x:=0; x<len(vals[:n]); x++ {
-				msg[x+4] = vals[x]
-				}
-				fmt.Println("Sending to client : ", msg[:])
-				_, err = conn.WriteToUDP(msg, addr)
-				if err != nil {
-				log.Println(err)
-				}
-			}*/
+			}  else {
+				endf = checkerread(errors.New("WRONG ACK RECEIVED!!!"), conn, addr)
+			}
 		}
 		if endf==true {
 			break
@@ -261,16 +260,26 @@ func handleWRQ(conn *net.UDPConn, filename string, currOp uint16, addr *net.UDPA
 			    }
 			    fmt.Println(pwd)
 				if bn==uint16(1) {//if first block, create file on server. Stores in local location
-						f, e := os.Create(filename)
-						check(e)
-						f.Close()
-					
+						if _, err := os.Stat(filename); err == nil {
+							endf = checkerread(errors.New("FILE ALREADY EXISTS!!"), conn, addr)
+							break
+						} else {
+							f, e := os.Create(filename)
+							if e != nil {
+								endf = checkerread(e, conn, addr)
+							}
+							f.Close()
+						}					
 				}
 
 				f, err := os.OpenFile(filename, os.O_APPEND | os.O_WRONLY, 0666) //open file and append to eof
-				check(err)
+				if err != nil {
+					endf = checkerread(err, conn, addr)
+				}
 				n, e := f.Write(vals[0:i-4])
-				check(e)
+				if e != nil {
+					endf = checkerread(e, conn, addr)
+				}
 				fmt.Println("Writing into file: ", filename, "- ", vals[0:i-4])
 				fmt.Println("Wrote ", n, " bytes")
 				f.Sync()
@@ -292,6 +301,9 @@ func handleWRQ(conn *net.UDPConn, filename string, currOp uint16, addr *net.UDPA
 					break
 				}	
 
+			}
+			if endf == true {
+				break
 			}
 	}
 	return endf
