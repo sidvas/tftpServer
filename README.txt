@@ -18,8 +18,6 @@ Current working conditions -
 
 ________________________________
 
-Thanks for giving me this assignment. I apologize I couldn't deliver fully as per requirements, but have a fair idea of how I could've done things, with my new knowledge and a little time as well as things that I was unsure about but could have worked.
-
 *********************************
 UPDATE
 -Implemented premature termination errors and fixed RRQ for large files. Able to send/receive correctly now!!
